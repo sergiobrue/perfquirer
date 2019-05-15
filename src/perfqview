@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+
+# // -*- mode: python -*-
+
+import json
+import sys
+try:
+    import tkinter as tk
+    import tkinter.ttk as ttk
+except:
+    print("Please install python3-tk and python3-tktreectrl")
+    exit(-1)
+
+def sort_data(perf_data):
+    for k in perf_data:
+        if len(perf_data[k]['childs']) > 0:
+            perf_data[k]['childs'].sort(key=lambda t
+                                        : next(iter(t.values()))['ticks'],
+                                        reverse=True)
+        for child in perf_data[k]['childs']:
+            sort_data(child)
+
+def perf_data_to_str(perf_data, prefix=''):
+    str_ret = ''
+    for k in perf_data:
+        v = perf_data[k]
+        if prefix != '':
+            str_ret = str_ret + '{}|\n'.format(prefix)
+        str_ret = str_ret \
+            + '{}{}{} [Ticks:{} ({}%), Exclusive-Ticks:{} ({}%) ]\n'\
+            .format(prefix, '+-- ' if prefix != '' else '',
+                    k, v['ticks'], v['percentage'],
+                    v['exclusive-ticks'], v['exclusive-percentage'])
+
+        for child in v['childs']:
+            str_ret = (str_ret
+                       + perf_data_to_str(child,
+                                          prefix+'|    '
+                                          if prefix != '' else '   ')
+            )
+    return str_ret
+
+def fillTreeView(perf_data, tv, parent=''):
+    for k in perf_data:
+        v = perf_data[k]
+        p = tv.insert(parent, 'end', text=k,
+                      values=(v['ticks'], v['percentage'],
+                              v['exclusive-ticks'], v['exclusive-percentage']))
+        for child in v['childs']:
+            fillTreeView(child, tv, p)
+
+
+class PerfQData:
+    def __init__(self, json_object):
+        self.perf_data = json_object
+        sort_data(self.perf_data)
+
+    def __str__(self):
+        return perf_data_to_str(self.perf_data)
+
+    def fillTreeView(self,tv):
+        fillTreeView(self.perf_data, tv, '')
+
+
+class Gfx:
+    def __init__(self, perfQ):
+        self.perfQ = perfQ
+        self.root = tk.Tk()
+        self.root.title('PerfQView')
+
+        self.tv = ttk.Treeview(self.root,
+                               columns=('Total Ticks', 'Total %',
+                                        'Exclusive Ticks', 'Exclusive %'))
+
+        self.tv.heading('Total Ticks', text='Total Ticks')
+        self.tv.heading('Total %', text='Total %')
+        self.tv.heading('Exclusive Ticks', text='Exclusive Ticks')
+        self.tv.heading('Exclusive %', text='Exclusive %')
+        self.tv.pack(fill=tk.BOTH, expand=tk.YES)
+
+        self.fr = ttk.Frame(self.root)
+        self.fr.pack(fill=tk.X)
+
+        self.fname = ttk.Label(self.fr)
+        self.fname.pack(fill=tk.X, expand=tk.YES)
+        self.pbCurrent = ttk.Progressbar(self.fr, orient="horizontal")
+        self.pbCurrentE = ttk.Progressbar(self.fr, orient="horizontal")
+        self.pbCurrent.pack(fill=tk.X, expand=tk.YES)
+        self.pbCurrentE.pack(fill=tk.X, expand=tk.YES, side=tk.BOTTOM)
+        self.perfQ.fillTreeView(self.tv)
+        self.tv.bind("<<TreeviewSelect>>", self.OnSelected)
+        self.root.mainloop()
+
+    def OnSelected(self, event):
+        try:
+            item = self.tv.selection()[0]
+            self.fname['text'] = (self.tv.item(item, 'text')
+                                  + '  ' + str(self.tv.item(item, 'values'))
+            )
+            self.pbCurrent['value'] = self.tv.item(item, 'values')[1]
+            self.pbCurrentE['value'] = self.tv.item(item, 'values')[3]
+        except:
+            pass
+
+
+
+def main(argv):
+    if len(argv) < 3 or argv[1] not in ['-t', '-g']:
+        print('Usage: {} <-t|-g> perfq.json'.format(argv[0]))
+        exit(-1)
+
+    gfx_mode = (argv[1] == '-g')
+
+    with open(sys.argv[2]) as json_file:
+        json_s = json.load(json_file)
+        pqd = PerfQData(json_s)
+        if not gfx_mode:
+            print(pqd)
+        else:
+            g = Gfx(pqd)
+
+if __name__ == "__main__":
+    main(sys.argv)
